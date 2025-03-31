@@ -401,8 +401,10 @@ def train(
         logging.info(summary_str) # <-- Log the summary string
 
         # --- Save Model Checkpoint ---
-        save_path = os.path.join(model_dir, f'epoch_{epoch+1:03d}.pt')
-        torch.save(model.state_dict(), save_path)
+        if epoch % 20 == 0:
+            logging.info(f"Saving model checkpoint at epoch {epoch+1}")
+            save_path = os.path.join(model_dir, f'epoch_{epoch+1:03d}.pt')
+            torch.save(model.state_dict(), save_path)
 
         # Save best model based on validation Dice
         if run_current_validation and avg_valid_dice > best_valid_dice:
