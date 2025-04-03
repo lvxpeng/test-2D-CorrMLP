@@ -253,22 +253,6 @@ class RegHead_block(nn.Module):
         return x_out
 
 
-
-# class PatchExpanding_block(nn.Module):
-#
-#     def __init__(self, embed_dim: int):
-#         super().__init__()
-#
-#         self.up_conv = nn.ConvTranspose3d(embed_dim, embed_dim // 2, kernel_size=2, stride=2)
-#         self.norm = nn.LayerNorm(embed_dim // 2)
-#
-#     def forward(self, x_in):
-#         x = self.up_conv(x_in)
-#         x = einops.rearrange(x, 'b c d h w -> b d h w c')
-#         x = self.norm(x)
-#         x_out = einops.rearrange(x, 'b d h w c -> b c d h w')
-#
-#         return x_out
 class PatchExpanding_block(nn.Module):
     def __init__(self, embed_dim: int):
         super().__init__()
@@ -288,69 +272,6 @@ class PatchExpanding_block(nn.Module):
         return x_out
 
 
-# class CMWMLP_block(nn.Module):  # input shape: n, c, h, w, d
-#     """Correlation-aware multi-window (CMW) MLP block."""
-#
-#     def __init__(self, in_channels, num_channels, use_corr=True, use_checkpoint=False):
-#         super().__init__()
-#         self.use_corr = use_corr
-#
-#         if use_corr:
-#             self.Corr = Correlation(max_disp=1, use_checkpoint=use_checkpoint)
-#             self.Conv = nn.Conv2d(in_channels * 2 + 27, num_channels, kernel_size=3, stride=1, padding='same')
-#         else:
-#             self.Conv = nn.Conv2d(in_channels * 2, num_channels, kernel_size=3, stride=1, padding='same')
-#
-#         self.mlpLayer = MultiWinMlpLayer(num_channels, use_checkpoint=use_checkpoint)
-#         self.channel_attention_block = RCAB(num_channels, use_checkpoint=use_checkpoint)
-#
-#     def forward(self, x_1, x_2):
-#
-#         if self.use_corr:
-#             x_corr = self.Corr(x_1, x_2)
-#             x = torch.cat([x_1, x_corr, x_2], dim=1)
-#             x = self.Conv(x)
-#         else:
-#             x = torch.cat([x_1, x_2], dim=1)
-#             x = self.Conv(x)
-#
-#         shortcut = x
-#         x = x.permute(0, 2, 3, 1)  # n,h,w,c
-#         x = self.mlpLayer(x)
-#         x = self.channel_attention_block(x)
-#         x = x.permute(0, 1, 2, 3)  # n,c,h,w
-#
-#         x_out = x + shortcut
-#         return x_out
-# class CMWMLP_block(nn.Module):
-#     def __init__(self, in_channels, num_channels, use_corr=True, use_checkpoint=False):
-#         super().__init__()
-#         self.use_corr = use_corr
-#         if use_corr:
-#             self.Corr = Correlation(max_disp=1, use_checkpoint=use_checkpoint)
-#             self.Conv = nn.Conv2d(in_channels * 2 + 27, num_channels, kernel_size=3, stride=1, padding='same')
-#         else:
-#             self.Conv = nn.Conv2d(in_channels * 2, num_channels, kernel_size=3, stride=1, padding='same')
-#         self.mlpLayer = MultiWinMlpLayer(num_channels, use_checkpoint=use_checkpoint)
-#         self.channel_attention_block = RCAB(num_channels, use_checkpoint=use_checkpoint)
-#
-#     def forward(self, x_1, x_2):
-#         if self.use_corr:
-#             x_corr = self.Corr(x_1, x_2)
-#             if x_corr.shape[1] < 27:
-#                 x_corr = x_corr.repeat(1, 27 // x_corr.shape[1], 1, 1)
-#             x = torch.cat([x_1, x_corr, x_2], dim=1)
-#             x = self.Conv(x)
-#         else:
-#             x = torch.cat([x_1, x_2], dim=1)
-#             x = self.Conv(x)
-#         shortcut = x
-#         x = x.permute(0, 2, 3, 1)  # n,h,w,c
-#         x = self.mlpLayer(x)
-#         x = self.channel_attention_block(x)
-#         x = x.permute(0, 3, 1, 2)  # n,c,h,w
-#         x_out = x + shortcut
-#         return x_out
 class CMWMLP_block(nn.Module):
     def __init__(self, in_channels, num_channels, use_corr=True, corr_max_disp=1, use_checkpoint=False): # Added corr_max_disp
         super().__init__()
@@ -466,33 +387,10 @@ class WinGmlpLayer(nn.Module):  # input shape: n, h, w, d, c
         self.out_project = nn.Linear(num_channels * factor // 2, num_channels, bias=use_bias)  # c*factor//2->c
 
     def forward(self, x):
-        # _, h, w, d, _ = x.shape
+
         _, h, w, _ = x.shape
 
-        # padding
-        # pad_l = pad_t = pad_d0 = 0
-        # pad_d1 = (self.fh - h % self.fh) % self.fh
-        # pad_b = (self.fw - w % self.fw) % self.fw
-        # pad_r = (self.fd - d % self.fd) % self.fd
-        # x = nnf.pad(x, (0, 0, pad_l, pad_r, pad_t, pad_b, pad_d0, pad_d1))
-        #
-        # gh, gw, gd = x.shape[1] // self.fh, x.shape[2] // self.fw, x.shape[3] // self.fd
-        # x = split_images(x, patch_size=(self.fh, self.fw, self.fd))  # n (gh gw gd) (fh fw fd) c
-        #
-        # # gMLP: Local (block) mixing part, provides local block communication.
-        # shortcut = x
-        # x = self.LayerNorm(x)
-        # x = self.in_project(x)
-        # x = self.gelu(x)
-        # x = self.SpatialGatingUnit(x)
-        # x = self.out_project(x)
-        # x = x + shortcut
-        #
-        # x = unsplit_images(x, grid_size=(gh, gw, gd), patch_size=(self.fh, self.fw, self.fd))
-        # if pad_d1 > 0 or pad_r > 0 or pad_b > 0:
-        #     x = x[:, :h, :w, :d, :].contiguous()
-        #
-        # return x
+
         pad_l = pad_t = 0
         pad_b = (self.fh - h % self.fh) % self.fh
         pad_r = (self.fw - w % self.fw) % self.fw
@@ -584,28 +482,7 @@ class RCAB(nn.Module):  # input shape: n, h, w, c
         return x_out
 
 
-# class CALayer(nn.Module):  # input shape: n, h, w, c
-#     """Squeeze-and-excitation block for channel attention."""
-#
-#     def __init__(self, num_channels, reduction=4, use_bias=True):
-#         super().__init__()
-#
-#         self.Conv_0 = nn.Conv2d(num_channels, num_channels // reduction, kernel_size=1, stride=1, bias=use_bias)
-#         self.relu = nn.ReLU()
-#         self.Conv_1 = nn.Conv2d(num_channels // reduction, num_channels, kernel_size=1, stride=1, bias=use_bias)
-#         self.sigmoid = nn.Sigmoid()
-#
-#     def forward(self, x_in):
-#         x = x_in.permute(0, 1, 2, 3)  # n,c,h,w,d
-#         x = torch.mean(x, dim=(2, 3, 4), keepdim=True)
-#         x = self.Conv_0(x)
-#         x = self.relu(x)
-#         x = self.Conv_1(x)
-#         w = self.sigmoid(x)
-#         w = w.permute(0, 2, 3,  1)  # n,h,w,d,c
-#
-#         x_out = x_in * w
-#         return x_out
+
 class CALayer(nn.Module):  # input shape: n, h, w, c
     """Squeeze-and-excitation block for channel attention."""
     def __init__(self, num_channels, reduction=4, use_bias=True):
@@ -653,90 +530,6 @@ class MLP(nn.Module):
         x = self.drop(x)
         return x
 
-
-# class Correlation(nn.Module):
-#     def __init__(self, max_disp=1, kernel_size=1, stride=1, use_checkpoint=False):
-#         assert kernel_size == 1, "kernel_size other than 1 is not implemented"
-#         assert stride == 1, "stride other than 1 is not implemented"
-#         super().__init__()
-#
-#         self.use_checkpoint = use_checkpoint
-#         self.max_disp = max_disp
-#         self.padlayer = nn.ConstantPad3d(max_disp, 0)
-#
-#     # def forward_run(self, x_1, x_2):
-#     #
-#     #     x_2 = self.padlayer(x_2)
-#     #     offsetx, offsety, offsetz = torch.meshgrid([torch.arange(0, 2 * self.max_disp + 1),
-#     #                                                 torch.arange(0, 2 * self.max_disp + 1),
-#     #                                                 torch.arange(0, 2 * self.max_disp + 1)], indexing='ij')
-#     #
-#     #     w, h = x_1.shape[2], x_1.shape[3]
-#     #     x_out = torch.cat([torch.mean(x_1 * x_2[:, :], 1, keepdim=True)
-#     #                        # for dx, dy, dz in zip(offsetx.reshape(-1), offsety.reshape(-1), offsetz.reshape(-1))
-#     #     ], 1)
-#     #     return x_out
-#     def forward_run(self, x_1, x_2):
-#         # 打印输入张量的形状
-#         print(f"x_1 shape: {x_1.shape}")
-#         print(f"x_2 shape: {x_2.shape}")
-#
-#         # 显式对齐 x_2 的形状
-#         x_2 = x_2[:, :x_1.shape[1], :x_1.shape[2], :x_1.shape[3]]
-#
-#         # 执行逐元素乘法
-#         product = x_1 * x_2
-#         print(f"Product shape: {product.shape}")
-#
-#         # 计算均值
-#         mean_value = torch.mean(product, dim=1, keepdim=True)
-#         print(f"Mean value shape: {mean_value.shape}")
-#
-#
-#         # 拼接结果
-#         x_out = torch.cat([mean_value], dim=1)
-#
-#         # if x_out.shape[1] < 155:
-#         #     x_out = x_out.repeat(1, 155, 1, 1)  # 将通道数扩展到 155
-#         return x_out
-#
-#     def forward(self, x_1, x_2):
-#
-#         if self.use_checkpoint and x_1.requires_grad and x_2.requires_grad:
-#             x = checkpoint.checkpoint(self.forward_run, x_1, x_2)
-#         else:
-#             x = self.forward_run(x_1, x_2)
-#         return x
-
-
-# class Correlation(nn.Module):
-#     def __init__(self, max_disp=1, kernel_size=1, stride=1, use_checkpoint=False):
-#         assert kernel_size == 1, "kernel_size other than 1 is not implemented"
-#         assert stride == 1, "stride other than 1 is not implemented"
-#         super().__init__()
-#         self.use_checkpoint = use_checkpoint
-#         self.max_disp = max_disp
-#         self.padlayer = nn.ConstantPad2d(max_disp, 0)
-#
-#     def forward_run(self, x_1, x_2):
-#         print(f"x_1 shape: {x_1.shape}")
-#         print(f"x_2 shape: {x_2.shape}")
-#         x_2 = x_2[:, :x_1.shape[1], :x_1.shape[2], :x_1.shape[3]]
-#         product = x_1 * x_2
-#         print(f"Product shape: {product.shape}")
-#         mean_value = torch.mean(product, dim=1, keepdim=True)
-#         print(f"Mean value shape: {mean_value.shape}")
-#         x_out = torch.cat([mean_value], dim=1)
-#         if x_out.shape[1] < 27:
-#             x_out = x_out.repeat(1, 27 // x_out.shape[1], 1, 1)
-#         return x_out
-#
-#     def forward(self, x_1, x_2):
-#         if self.use_checkpoint and x_1.requires_grad and x_2.requires_grad:
-#             x = checkpoint.checkpoint(self.forward_run, x_1, x_2)
-#         else:
-#             x = self.forward_run(x_1, x_2)
-#         return x
 class Correlation(nn.Module):
     def __init__(self, max_disp=4, use_checkpoint=False):  # Increased default max_disp
         super().__init__()
@@ -767,12 +560,7 @@ class Correlation(nn.Module):
         return out / c
 
     def forward(self, x_1, x_2):
-        # Ensure channel counts match if necessary, or handle within forward_run
-        # For example, if they can differ:
-        # c1, c2 = x_1.shape[1], x_2.shape[1]
-        # if c1 != c2:
-        #    # Handle mismatch, e.g. project to same dim first, or error out
-        #    pass
+
         if self.use_checkpoint and x_1.requires_grad and x_2.requires_grad:
             return checkpoint.checkpoint(self.forward_run, x_1, x_2)
         else:
@@ -788,8 +576,6 @@ def split_images(x, patch_size):  # n, h, w, d, c
     batch, height, width, channels = x.shape
     grid_height = height // patch_size[0]
     grid_width = width // patch_size[1]
-
-
     x = einops.rearrange(
         x, "n (gh fh) (gw fw) c -> n (gh gw) (fh fw) c",
         gh=grid_height, gw=grid_width, fh=patch_size[0], fw=patch_size[1])
@@ -798,7 +584,6 @@ def split_images(x, patch_size):  # n, h, w, d, c
 
 def unsplit_images(x, grid_size, patch_size):
     """patches to images."""
-
     x = einops.rearrange(
         x, "n (gh gw) (fh fw) c -> n (gh fh) (gw fw) c",
         gh=grid_size[0], gw=grid_size[1], fh=patch_size[0], fw=patch_size[1])

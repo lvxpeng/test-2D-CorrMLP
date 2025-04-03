@@ -224,6 +224,12 @@ class ImageLoader(BaseLoader):
         img = nib.load(path)
         data = img.get_fdata()
         return np.squeeze(data).astype(np.float32)
+    # def _load_nifti(self, path):
+    #     img = nib.load(path)
+    #     affine = img.affine # <-- Get affine
+    #     data = img.get_fdata()
+    #     # Return both data and affine
+    #     return np.squeeze(data).astype(np.float32), affine # <-- Return tuple
 
     def _preprocess(self, img_np):
         if img_np.ndim != 2:
@@ -232,6 +238,15 @@ class ImageLoader(BaseLoader):
             if img_np.ndim != 2:
                  log.error(f"Could not reduce image to 2D. Final shape: {img_np.shape}")
                  return None
+        """Applies normalization and adds channel dimension. Passes affine through."""
+        # img_np, affine = img_np_affine_tuple # <-- Unpack tuple
+        # if img_np.ndim != 2:
+        #     log.warning(f"Image data expected 2D, got {img_np.shape}. Squeezing.")
+        #     img_np = np.squeeze(img_np)
+        #     if img_np.ndim != 2:
+        #          log.error(f"Could not reduce image to 2D. Final shape: {img_np.shape}")
+        #          return None, affine # Return affine even on error? Or None, None?
+
         if self.normalize:
             img_np = img_np.astype(np.float32)
             min_val, max_val = np.min(img_np), np.max(img_np)
@@ -240,6 +255,17 @@ class ImageLoader(BaseLoader):
             elif max_val > 0:
                  img_np = img_np / max_val
         return img_np[np.newaxis, :, :] # Add channel dim
+        # if self.normalize:
+        #     # ... (normalization logic) ...
+        #     img_np = img_np.astype(np.float32)
+        #     min_val, max_val = np.min(img_np), np.max(img_np)
+        #     if max_val > min_val:
+        #         img_np = (img_np - min_val) / (max_val - min_val)
+        #     elif max_val > 0:
+        #         img_np = img_np / max_val
+
+            # Return preprocessed tensor and original affine
+        # return torch.from_numpy(img_np[np.newaxis, :, :]), affine  # <-- Return tuple
 
     def load(self, path):
         """Loads and preprocesses an image based on its extension."""
@@ -264,6 +290,29 @@ class ImageLoader(BaseLoader):
             return None
 
         return self._preprocess(img_np)
+    # def load(self, path):
+    #     """Loads image, returns (tensor, affine) tuple."""
+    #     ext = self._get_extension(path)
+    #     data_np = None
+    #     affine = None # Default affine is None
+    #     log.debug(f"Attempting to load image '{path}' with ext '{ext}'")
+    #
+    #     if ext == 'png': data_np = self._load_or_log_error(path, self._load_png)
+    #     elif ext == 'npy': data_np = self._load_or_log_error(path, self._load_npy)
+    #     elif ext == 'npz': data_np = self._load_or_log_error(path, self._load_npz)
+    #     elif ext in ('niigz', 'nii'):
+    #         result = self._load_or_log_error(path, self._load_nifti)
+    #         if result: data_np, affine = result # <-- Unpack NIfTI result
+    #     else:
+    #         log.error(f"Unsupported image file extension: '{ext}' for path {path}")
+    #         return None, None # Return tuple
+    #
+    #     if data_np is None:
+    #         log.warning(f"Loading returned None for image: {path}")
+    #         return None, None # Return tuple
+    #
+    #     # Preprocess expects tuple, pass (data, affine)
+    #     return self._preprocess((data_np, affine)) # <-- Pass tuple
 
 
 class LabelLoader(BaseLoader):
@@ -349,7 +398,153 @@ class LabelLoader(BaseLoader):
 
         return self._preprocess(label_data)
 
-# --- RegistrationDataset and load_validation_pair remain unchanged below ---
+# class LabelLoader(BaseLoader):
+#     """Loads 2D segmentation labels/masks."""
+#     def __init__(self, npz_key='label', dtype=torch.float32): # Keep float32 as default
+#         self.npz_key = npz_key
+#         self.dtype = dtype
+#         log.debug(f"LabelLoader initialized (npz_key='{npz_key}', dtype={dtype})")
+#
+#     def _get_extension(self, path):
+#         # ... (extension getter remains the same) ...
+#         norm_path = os.path.normpath(path).lower()
+#         if norm_path.endswith('.nii.gz'):
+#             return 'niigz'
+#         base, ext = os.path.splitext(norm_path)
+#         return ext.lstrip('.')
+#
+#     # ... (_load_png, _load_npy, _load_npz remain the same) ...
+#     def _load_png(self, path):
+#         img = Image.open(path).convert('L')
+#         return np.array(img)
+#
+#     def _load_npy(self, path):
+#         return np.load(path)
+#
+#     def _load_npz(self, path):
+#         with np.load(path) as data:
+#             if self.npz_key not in data:
+#                 log.error(f"Key '{self.npz_key}' not found in npz file: {path}. Available keys: {list(data.keys())}")
+#                 return None
+#             return data[self.npz_key]
+
+
+    # --- CORRECTED _load_nifti METHOD ---
+    def _load_nifti(self, path):
+        img = nib.load(path)
+        # Load data using default float type (usually float64)
+        # Let nibabel handle potential scaling factors if present, though unlikely for labels
+        data = img.get_fdata()
+        # Squeeze singleton dimensions and convert to the desired type *after* loading
+        # Since self.dtype is torch.float32, convert numpy array to np.float32
+        # If labels were truly integer, you might convert to np.int32 here instead,
+        # but the LabelLoader's self.dtype is what dictates the final tensor type.
+        return np.squeeze(data).astype(np.float32) # Ensure float32 for consistency with self.dtype
+    # def _load_nifti(self, path):
+    #     img = nib.load(path)
+    #     affine = img.affine # <-- Get affine
+    #     data = img.get_fdata() # Load as float first
+    #     # Return both data and affine
+    #     return np.squeeze(data).astype(np.float32), affine # <-- Return tuple (keep float for warping)
+
+    # ------------------------------------
+
+    def _load_json(self, path):
+        # ... (json loading remains the same) ...
+        log.warning(f"Loading JSON label from {path}. Returning parsed data, not a mask array.")
+        with open(path, 'r') as f:
+            return json.load(f)
+
+    def _preprocess(self, label_data):
+        # ... (preprocessing remains the same) ...
+        if not isinstance(label_data, np.ndarray):
+            log.error(f"Label data loaded is not a NumPy array (type: {type(label_data)}). Cannot preprocess into mask tensor.")
+            return None
+        if label_data.ndim != 2:
+            log.warning(f"Label data expected to be 2D, got shape {label_data.shape}. Squeezing.")
+            label_data = np.squeeze(label_data)
+            if label_data.ndim != 2:
+                 log.error(f"Could not reduce label to 2D. Final shape: {label_data.shape}")
+                 return None
+        label_np = label_data[np.newaxis, :, :]
+        # Convert to tensor using the dtype specified during LabelLoader initialization
+        return torch.tensor(label_np, dtype=self.dtype)
+    # def _preprocess(self, label_data_affine_tuple):
+    #     """Adds channel dim, converts to tensor. Passes affine through."""
+    #     label_data, affine = label_data_affine_tuple # <-- Unpack tuple
+    #
+    #     if not isinstance(label_data, np.ndarray): # Handles non-array data like JSON
+    #          log.error(f"Label data is not NumPy array (type: {type(label_data)}).")
+    #          return None, affine
+    #
+    #     if label_data.ndim != 2:
+    #         log.warning(f"Label data expected 2D, got {label_data.shape}. Squeezing.")
+    #         label_data = np.squeeze(label_data)
+    #         if label_data.ndim != 2:
+    #              log.error(f"Could not reduce label to 2D. Final: {label_data.shape}")
+    #              return None, affine
+    #
+    #     label_np = label_data[np.newaxis, :, :]
+    #     # Return tensor with specified dtype and original affine
+    #     return torch.tensor(label_np, dtype=self.dtype), affine # <-- Return tuple
+
+    def load(self, path):
+        # ... (load method remains the same, calling the corrected _load_nifti) ...
+        ext = self._get_extension(path)
+        label_data = None
+        log.debug(f"Attempting to load label '{path}' with detected extension '{ext}'")
+
+        if ext == 'png':
+            label_data = self._load_or_log_error(path, self._load_png)
+        elif ext == 'npy':
+            label_data = self._load_or_log_error(path, self._load_npy)
+        elif ext == 'npz':
+            label_data = self._load_or_log_error(path, self._load_npz)
+        elif ext in ('niigz', 'nii'):
+            label_data = self._load_or_log_error(path, self._load_nifti) # Calls corrected method
+        elif ext == 'json':
+            label_data = self._load_or_log_error(path, self._load_json)
+            if not isinstance(label_data, np.ndarray):
+                log.warning(f"JSON label loaded from {path} is not directly usable as a mask array.")
+                return None
+        else:
+            log.error(f"Unsupported label file extension: '{ext}' for path {path}")
+            return None
+
+        if label_data is None:
+            log.warning(f"Loading returned None for label: {path}")
+            return None
+
+        return self._preprocess(label_data)
+    # def load(self, path):
+    #     """Loads label, returns (tensor, affine) tuple."""
+    #     ext = self._get_extension(path)
+    #     label_data = None
+    #     affine = None # Default affine is None
+    #     log.debug(f"Attempting to load label '{path}' with ext '{ext}'")
+    #
+    #     if ext == 'png': label_data = self._load_or_log_error(path, self._load_png)
+    #     elif ext == 'npy': label_data = self._load_or_log_error(path, self._load_npy)
+    #     elif ext == 'npz': label_data = self._load_or_log_error(path, self._load_npz)
+    #     elif ext in ('niigz', 'nii'):
+    #          result = self._load_or_log_error(path, self._load_nifti)
+    #          if result: label_data, affine = result # <-- Unpack NIfTI result
+    #     elif ext == 'json':
+    #          label_data = self._load_or_log_error(path, self._load_json)
+    #          # Cannot preprocess JSON to tensor here easily
+    #          if not isinstance(label_data, np.ndarray): return None, None
+    #     else:
+    #          log.error(f"Unsupported label file extension: '{ext}' for path {path}")
+    #          return None, None
+    #
+    #     if label_data is None:
+    #          log.warning(f"Loading returned None for label: {path}")
+    #          return None, None
+    #
+    #     # Preprocess expects tuple, pass (data, affine)
+    #     return self._preprocess((label_data, affine)) # <-- Pass tuple
+
+
 # ... (Rest of datagenerators2D.py) ...
 
 class RegistrationDataset(Dataset):

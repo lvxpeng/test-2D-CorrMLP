@@ -1,6 +1,3 @@
-# trainning.py (using new datagenerators2D)
-
-# trainning.py
 
 import os
 import sys
@@ -231,7 +228,7 @@ def train(
 
     # --- 3. Initialize Model, Optimizer, Losses ---
     logging.info("--- Initializing Model ---")
-    model = network2D.CorrMLP(in_channels=1)  # Assuming 1 input channel (grayscale)
+    model = network2D.CorrMLP()  # Assuming 1 input channel (grayscale)
     model.to(device)
 
     if load_model and os.path.isfile(load_model):
@@ -405,8 +402,9 @@ def train(
         # ...
 
         # --- Save Model Checkpoint ---
-        save_path = os.path.join(model_dir, f'epoch_{epoch + 1:03d}.pt')
-        torch.save(model.state_dict(), save_path)
+        if epoch % 20 == 0:
+          save_path = os.path.join(model_dir, f'epoch_{epoch + 1:03d}.pt')
+          torch.save(model.state_dict(), save_path)
 
         if run_current_validation and avg_valid_dice > best_valid_dice:
             best_valid_dice = avg_valid_dice
@@ -423,9 +421,9 @@ if __name__ == "__main__":
 
     # Paths
     parser.add_argument("--data_base_dir", type=str, default='./data/', help="Base directory for data")
-    parser.add_argument("--atlas_name", type=str, default='atlas.png',
+    parser.add_argument("--atlas_name", type=str, default='atlas.nii.gz',
                         help="Filename of fixed atlas image (in data_base_dir/fixed/)")
-    parser.add_argument("--atlas_seg_name", type=str, default='atlas_seg.png',
+    parser.add_argument("--atlas_seg_name", type=str, default='atlas_seg.nii.gz',
                         help="Filename of fixed atlas segmentation (in data_base_dir/fixed_seg/)")
     parser.add_argument("--train_moving_subdir", type=str, default='moving',
                         help="Subdirectory for training moving images")
@@ -435,9 +433,9 @@ if __name__ == "__main__":
                         help="Subdirectory for fixed atlas segmentation")
     parser.add_argument("--valid_moving_seg_subdir", type=str, default='validation_moving_seg',
                         help="Subdirectory for validation moving segmentations")
-    parser.add_argument("--img_pattern", type=str, default='*.png',
+    parser.add_argument("--img_pattern", type=str, default='*.nii.gz',
                         help="Glob pattern for image files (e.g., '*.png', '*.nii.gz')")
-    parser.add_argument("--label_pattern", type=str, default='*.png', help="Glob pattern for label files")
+    parser.add_argument("--label_pattern", type=str, default='*.nii.gz', help="Glob pattern for label files")
     parser.add_argument("--img_npz_key", type=str, default='img', help="Key for image data in NPZ files")
     parser.add_argument("--label_npz_key", type=str, default='label', help="Key for label data in NPZ files")
     parser.add_argument("--model_dir", type=str, default='./models/', help="Directory to save models")
